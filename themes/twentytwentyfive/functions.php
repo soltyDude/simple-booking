@@ -201,7 +201,8 @@ remove_shortcode('desks_list');
 add_shortcode( 'desks_list', 'wpb_desks_list_shortcode' );
 
 /* ========== Create booking after Contact Form 7 submit (no changes) ========== */
-add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
+add_action( 'wpcf7_before_send_mail', function ( $contact_form ) {
+
     if ( ! class_exists( 'WPCF7_Submission' ) ) {
         return;
     }
@@ -252,20 +253,24 @@ add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
         return;
     }
 
-    if ( function_exists( 'update_field' ) ) {
-        update_field( 'desk_id', $desk_id, $booking_post_id );
-        update_field( 'booking_date', $booking_date, $booking_post_id );
-        update_field( 'booked_by_user', $user_id, $booking_post_id );
-        update_field( 'name', $name, $booking_post_id );
-        update_field( 'email', $email, $booking_post_id );
-        update_field( 'phone', $phone, $booking_post_id );
-    } else {
-        update_post_meta( $booking_post_id, 'desk_id', $desk_id );
-        update_post_meta( $booking_post_id, 'booking_date', $booking_date );
-        update_post_meta( $booking_post_id, 'name', $name );
-        update_post_meta( $booking_post_id, 'email', $email );
-        update_post_meta( $booking_post_id, 'phone', $phone );
-    }
+    // Always store in post_meta (this is the "source of truth")
+update_post_meta( $booking_post_id, 'desk_id', $desk_id );
+update_post_meta( $booking_post_id, 'booking_date', $booking_date );
+update_post_meta( $booking_post_id, 'booked_by_user', $user_id );
+update_post_meta( $booking_post_id, 'name', $name );
+update_post_meta( $booking_post_id, 'email', $email );
+update_post_meta( $booking_post_id, 'phone', $phone );
+
+// If ACF fields exist - also update via ACF (optional)
+if ( function_exists( 'update_field' ) ) {
+    @update_field( 'desk_id', $desk_id, $booking_post_id );
+    @update_field( 'booking_date', $booking_date, $booking_post_id );
+    @update_field( 'booked_by_user', $user_id, $booking_post_id );
+    @update_field( 'name', $name, $booking_post_id );
+    @update_field( 'email', $email, $booking_post_id );
+    @update_field( 'phone', $phone, $booking_post_id );
+}
+
 } );
 
 /**
