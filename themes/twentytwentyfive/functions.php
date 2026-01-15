@@ -212,24 +212,31 @@ add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
     $data = $submission->get_posted_data();
 
     $desk_id      = isset( $data['desk-id'] ) ? intval( $data['desk-id'] ) : 0;
-    $booking_date = isset( $data['booking-date'] ) ? sanitize_text_field( $data['booking-date'] ) : '';
+    $booking_date_raw = isset( $data['booking-date'] ) ? sanitize_text_field( $data['booking-date'] ) : '';
+    $booking_date     = sb_normalize_date_to_iso( $booking_date_raw );
     $name         = isset( $data['your-name'] ) ? sanitize_text_field( $data['your-name'] ) : '';
     $email        = isset( $data['your-email'] ) ? sanitize_email( $data['your-email'] ) : '';
     $phone        = isset( $data['your-phone'] ) ? sanitize_text_field( $data['your-phone'] ) : '';
+    $user_id = get_current_user_id();
+
+    if ( ! is_user_logged_in() ) {
+    return;
+}
 
     if ( $desk_id <= 0 || empty( $booking_date ) ) {
         return;
     }
 
     $existing = get_posts( array(
-        'post_type'   => 'booking',
-        'meta_query'  => array(
-            array( 'key' => 'desk_id', 'value' => $desk_id ),
-            array( 'key' => 'booking_date', 'value' => $booking_date ),
-        ),
-        'posts_per_page' => 1,
-        'fields' => 'ids',
-    ) );
+    'post_type'      => 'booking',
+    'post_status'    => 'publish',
+    'meta_query'     => array(
+        array( 'key' => 'desk_id', 'value' => $desk_id ),
+        array( 'key' => 'booking_date', 'value' => $booking_date ),
+    ),
+    'posts_per_page' => 1,
+    'fields'         => 'ids',
+) );
 
     if ( ! empty( $existing ) ) {
         return;
@@ -248,6 +255,7 @@ add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
     if ( function_exists( 'update_field' ) ) {
         update_field( 'desk_id', $desk_id, $booking_post_id );
         update_field( 'booking_date', $booking_date, $booking_post_id );
+        update_field( 'booked_by_user', $user_id, $booking_post_id );
         update_field( 'name', $name, $booking_post_id );
         update_field( 'email', $email, $booking_post_id );
         update_field( 'phone', $phone, $booking_post_id );
@@ -260,9 +268,35 @@ add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
     }
 } );
 
+/**
+ * Normalize a date string to ISO format Y-m-d.
+ * Accepts: Y-m-d, Ymd, d/m/Y, d.m.Y
+ * Returns: string|false
+ */
+function sb_normalize_date_to_iso( $raw ) {
+    $raw = trim( (string) $raw );
+    if ( $raw === '' ) return false;
+
+    $formats = array( 'Y-m-d', 'Ymd', 'd/m/Y', 'd.m.Y' );
+
+    foreach ( $formats as $fmt ) {
+        $dt = DateTime::createFromFormat( $fmt, $raw );
+        if ( $dt && $dt->format( $fmt ) === $raw ) {
+            return $dt->format( 'Y-m-d' );
+        }
+    }
+
+    $ts = strtotime( $raw );
+    if ( $ts !== false ) {
+        return date( 'Y-m-d', $ts );
+    }
+
+    return false;
+}
+
 /* ========== CF7: booking-date validation (prevent duplicates) ========== */
-add_filter( 'wpcf7_validate_date*', 'wpse_booking_date_validate', 20, 2 );
-add_filter( 'wpcf7_validate_date',  'wpse_booking_date_validate', 20, 2 );
+add_filter( 'wpcf7_validate_text*', 'wpse_booking_date_validate', 20, 2 );
+add_filter( 'wpcf7_validate_text',  'wpse_booking_date_validate', 20, 2 );
 
 function wpse_booking_date_validate( $result, $tag ) {
     $tag_name = isset( $tag->name ) ? $tag->name : '';
@@ -270,41 +304,67 @@ function wpse_booking_date_validate( $result, $tag ) {
         return $result;
     }
 
-    $booking_date = isset( $_POST['booking-date'] ) ? sanitize_text_field( wp_unslash( $_POST['booking-date'] ) ) : '';
-    $desk_id      = isset( $_POST['desk-id'] ) ? intval( $_POST['desk-id'] ) : 0;
-
-    if ( empty( $booking_date ) || $desk_id <= 0 ) {
+    // Must be logged in (server-side safety)
+    if ( ! is_user_logged_in() ) {
+        $result->invalidate( $tag, 'Please log in to book a desk.' );
         return $result;
     }
 
-    $candidates = array( $booking_date );
-    $dt = DateTime::createFromFormat( 'Y-m-d', $booking_date );
-    if ( $dt ) {
-        $candidates[] = $dt->format( 'Ymd' );
+    $booking_date_raw = isset( $_POST['booking-date'] ) ? sanitize_text_field( wp_unslash( $_POST['booking-date'] ) ) : '';
+    $desk_id          = isset( $_POST['desk-id'] ) ? intval( $_POST['desk-id'] ) : 0;
+
+    $booking_date = sb_normalize_date_to_iso( $booking_date_raw );
+
+    if ( ! $booking_date || $desk_id <= 0 ) {
+        $result->invalidate( $tag, 'Invalid date or desk.' );
+        return $result;
     }
 
-    $meta_queries = array( 'relation' => 'AND',
-        array( 'key' => 'desk_id', 'value' => $desk_id ),
-        array( 'relation' => 'OR' ),
-    );
-
-    foreach ( $candidates as $c ) {
-        $meta_queries[2][] = array( 'key' => 'booking_date', 'value' => $c );
+    // Disallow past dates (site timezone)
+    $today = wp_date( 'Y-m-d' );
+    if ( $booking_date < $today ) {
+        $result->invalidate( $tag, 'You cannot book past dates.' );
+        return $result;
     }
 
-    $existing = get_posts( array(
+    // 1 booking per day per user
+    $user_id = get_current_user_id();
+    $user_existing = get_posts( array(
         'post_type'      => 'booking',
+        'post_status'    => 'publish',
         'posts_per_page' => 1,
         'fields'         => 'ids',
-        'meta_query'     => $meta_queries,
+        'meta_query'     => array(
+            array( 'key' => 'booked_by_user', 'value' => $user_id ),
+            array( 'key' => 'booking_date', 'value' => $booking_date ),
+        ),
     ) );
 
-    if ( ! empty( $existing ) ) {
+    if ( ! empty( $user_existing ) ) {
+        $result->invalidate( $tag, 'You already have a booking for this date.' );
+        return $result;
+    }
+
+    // Prevent duplicates: same desk + same date
+    $desk_existing = get_posts( array(
+        'post_type'      => 'booking',
+        'post_status'    => 'publish',
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+        'meta_query'     => array(
+            array( 'key' => 'desk_id', 'value' => $desk_id ),
+            array( 'key' => 'booking_date', 'value' => $booking_date ),
+        ),
+    ) );
+
+    if ( ! empty( $desk_existing ) ) {
         $result->invalidate( $tag, 'This date is already booked — please choose another.' );
+        return $result;
     }
 
     return $result;
 }
+
 
 /* ----------------------------
    Force login (updated logic) — unchanged other than comments
@@ -388,3 +448,61 @@ add_action( 'template_redirect', function() {
     wp_redirect( site_url( '/login/' ) );
     exit;
 }, 10 );
+
+add_action( 'wp_enqueue_scripts', function() {
+
+    if ( ! is_singular( 'desk' ) ) {
+        return;
+    }
+
+    // Flatpickr (CDN)
+    wp_enqueue_style( 'sb-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css', array(), '4.6.13' );
+    wp_enqueue_script( 'sb-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr', array(), '4.6.13', true );
+
+    // Our JS
+    wp_enqueue_script(
+        'sb-booking-calendar',
+        get_stylesheet_directory_uri() . '/assets/js/booking-calendar.js',
+        array( 'sb-flatpickr' ),
+        '1.0.0',
+        true
+    );
+
+    // Collect booked dates for current desk
+    $desk_id = get_queried_object_id();
+
+    $bookings = get_posts( array(
+        'post_type'      => 'booking',
+        'post_status'    => 'publish',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+        'meta_query'     => array(
+            array(
+                'key'   => 'desk_id',
+                'value' => $desk_id,
+            ),
+        ),
+    ) );
+
+    $booked_dates = array();
+    foreach ( $bookings as $bid ) {
+        $raw = function_exists( 'get_field' )
+            ? get_field( 'booking_date', $bid )
+            : get_post_meta( $bid, 'booking_date', true );
+
+        $iso = sb_normalize_date_to_iso( $raw );
+        if ( $iso ) {
+            $booked_dates[] = $iso;
+        }
+    }
+
+    $booked_dates = array_values( array_unique( $booked_dates ) );
+    sort( $booked_dates );
+
+    wp_localize_script( 'sb-booking-calendar', 'SB_BOOKING', array(
+        'deskId'      => $desk_id,
+        'bookedDates' => $booked_dates,
+        'minDate'     => wp_date( 'Y-m-d' ),
+    ) );
+
+}, 20 );

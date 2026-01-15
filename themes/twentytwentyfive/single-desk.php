@@ -86,7 +86,8 @@ get_header();
           <?php the_content(); ?>
         </div>
 
-        <section class="desk-booked-dates" style="margin-top:2rem;">
+        <?php /*
+         <section class="desk-booked-dates" style="margin-top:2rem;">
           <h2 style="margin-bottom:.5rem;">Booked dates</h2>
           <?php
           $desk_id = get_the_ID();
@@ -135,7 +136,7 @@ get_header();
               echo '<p>No bookings yet</p>';
           }
           ?>
-        </section>
+        </section> */
 
         <section class="desk-booking" style="margin-top:2rem;padding:1rem;border:1px solid #eee;border-radius:6px;">
           <h2 style="margin-top:0;">Book this desk</h2>
@@ -147,6 +148,7 @@ get_header();
           ?>
         </section>
 
+        <?php /*
         <script>
         document.addEventListener('DOMContentLoaded', function () {
             var postId = '<?php echo esc_js( $post_id ); ?>';
@@ -210,7 +212,7 @@ get_header();
                 }, { capture: true });
             }
         });
-        </script>
+        </script> */
 
       </article>
 
