@@ -1,0 +1,38 @@
+/* 1) Скрыть маленькие служебные строки внизу футера */
+footer p.has-small-font-size {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* 2) Убрать spacer перед ними (который оставляет большой отступ) */
+footer .wp-block-spacer,
+footer [style*="--wp--preset--spacing--70"] {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* 3) Подстраховка: если футер содержит блок с этими строками внутри .wp-block-group.alignfull */
+footer .wp-block-group.alignfull p.has-small-font-size {
+    display: none !important;
+}
+
+/* 4) Уменьшить нижний отступ футера (если после скрытия остаётся большое пустое пространство) */
+footer .wp-block-group.has-global-padding,
+footer .wp-block-group.alignfull,
+footer.wp-block-template-part,
+footer.site-footer {
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* Примечание:
+   Если ты хочешь совсем удалить футер (включая колонки меню), можно раскомментировать:
+   footer, .site-footer, footer.wp-block-template-part { display: none !important; }
+*/

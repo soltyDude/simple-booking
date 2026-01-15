@@ -1,0 +1,17 @@
+# Ignore all plugins (installed via admin)
+plugins/
+
+# Ignore uploads
+uploads/
+
+# Ignore other themes (keep only our theme)
+themes/twentytwentythree/
+themes/twentytwentyfour/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Env / config
+.env
+wp-config.php
