@@ -300,8 +300,8 @@ function sb_normalize_date_to_iso( $raw ) {
 }
 
 /* ========== CF7: booking-date validation (prevent duplicates) ========== */
-add_filter( 'wpcf7_validate_text*', 'wpse_booking_date_validate', 20, 2 );
-add_filter( 'wpcf7_validate_text',  'wpse_booking_date_validate', 20, 2 );
+add_filter( 'wpcf7_validate_date*', 'wpse_booking_date_validate', 20, 2 );
+add_filter( 'wpcf7_validate_date',  'wpse_booking_date_validate', 20, 2 );
 
 function wpse_booking_date_validate( $result, $tag ) {
     $tag_name = isset( $tag->name ) ? $tag->name : '';
@@ -319,12 +319,17 @@ function wpse_booking_date_validate( $result, $tag ) {
     $desk_id          = isset( $_POST['desk-id'] ) ? intval( $_POST['desk-id'] ) : 0;
 
     $booking_date = sb_normalize_date_to_iso( $booking_date_raw );
+    
 
     if ( ! $booking_date || $desk_id <= 0 ) {
         $result->invalidate( $tag, 'Invalid date or desk.' );
         return $result;
     }
 
+    $dt = DateTime::createFromFormat( 'Y-m-d', $booking_date );
+    $booking_date_dmy = $dt ? $dt->format( 'd/m/Y' ) : '';
+    $booking_date_ymd = $dt ? $dt->format( 'Ymd' ) : '';
+    
     // Disallow past dates (site timezone)
     $today = wp_date( 'Y-m-d' );
     if ( $booking_date < $today ) {
@@ -339,10 +344,16 @@ function wpse_booking_date_validate( $result, $tag ) {
         'post_status'    => 'publish',
         'posts_per_page' => 1,
         'fields'         => 'ids',
-        'meta_query'     => array(
-            array( 'key' => 'booked_by_user', 'value' => $user_id ),
-            array( 'key' => 'booking_date', 'value' => $booking_date ),
-        ),
+        'meta_query' => array(
+    'relation' => 'AND',
+    array( 'key' => 'booked_by_user', 'value' => $user_id ),
+    array(
+        'relation' => 'OR',
+        array( 'key' => 'booking_date', 'value' => $booking_date ),
+        array( 'key' => 'booking_date', 'value' => $booking_date_dmy ),
+        array( 'key' => 'booking_date', 'value' => $booking_date_ymd ),
+    ),
+),
     ) );
 
     if ( ! empty( $user_existing ) ) {
@@ -356,10 +367,16 @@ function wpse_booking_date_validate( $result, $tag ) {
         'post_status'    => 'publish',
         'posts_per_page' => 1,
         'fields'         => 'ids',
-        'meta_query'     => array(
-            array( 'key' => 'desk_id', 'value' => $desk_id ),
-            array( 'key' => 'booking_date', 'value' => $booking_date ),
-        ),
+        'meta_query' => array(
+    'relation' => 'AND',
+    array( 'key' => 'desk_id', 'value' => $desk_id ),
+    array(
+        'relation' => 'OR',
+        array( 'key' => 'booking_date', 'value' => $booking_date ),
+        array( 'key' => 'booking_date', 'value' => $booking_date_dmy ),
+        array( 'key' => 'booking_date', 'value' => $booking_date_ymd ),
+    ),
+),
     ) );
 
     if ( ! empty( $desk_existing ) ) {
